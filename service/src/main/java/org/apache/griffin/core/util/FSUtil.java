@@ -27,9 +27,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,13 +36,10 @@ import java.util.List;
 
 import static org.apache.griffin.core.exception.GriffinExceptionMessage.HDFS_FILE_NOT_EXIST;
 
-@Component
 public class FSUtil {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(FSUtil.class);
     private static final int SAMPLE_ROW_COUNT = 100;
-
-    private static String fsDefaultName;
 
     private static FileSystem fileSystem;
 
@@ -56,17 +50,10 @@ public class FSUtil {
         return fileSystem;
     }
 
-    public FSUtil(@Value("${fs.defaultFS}") String defaultName) {
-        fsDefaultName = defaultName;
-    }
-
 
     private static void initFileSystem() {
         Configuration conf = new Configuration();
-        if (!StringUtils.isEmpty(fsDefaultName)) {
-            conf.set("fs.defaultFS", fsDefaultName);
-            LOGGER.info("Setting fs.defaultFS:{}", fsDefaultName);
-        }
+        
         if (StringUtils.isEmpty(conf.get("fs.hdfs.impl"))) {
             LOGGER.info("Setting fs.hdfs.impl:{}", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
             conf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
@@ -78,7 +65,7 @@ public class FSUtil {
         try {
             fileSystem = FileSystem.get(conf);
         } catch (Exception e) {
-            LOGGER.error("Can not get hdfs file system. {}", e.getMessage());
+            LOGGER.error("Can not get hdfs file system. {}", e);
         }
 
     }
@@ -160,19 +147,23 @@ public class FSUtil {
         if (isFileExist(path)) {
             FSDataInputStream missingData = fileSystem.open(new Path(path));
             BufferedReader bufReader = new BufferedReader(new InputStreamReader(missingData, Charsets.UTF_8));
-            String line = null;
-            int rowCnt = 0;
-            StringBuilder output = new StringBuilder(1024);
+            try {
+                String line = null;
+                int rowCnt = 0;
+                StringBuilder output = new StringBuilder(1024);
 
-            while ((line = bufReader.readLine()) != null) {
-                if (rowCnt < SAMPLE_ROW_COUNT) {
-                    output.append(line);
-                    output.append("\n");
+                while ((line = bufReader.readLine()) != null) {
+                    if (rowCnt < SAMPLE_ROW_COUNT) {
+                        output.append(line);
+                        output.append("\n");
+                    }
+                    rowCnt++;
                 }
-                rowCnt++;
-            }
 
-            return IOUtils.toInputStream(output, Charsets.UTF_8);
+                return IOUtils.toInputStream(output, Charsets.UTF_8);
+            } finally {
+                bufReader.close();
+            }
         } else {
             LOGGER.warn("HDFS file does not exist.", path);
             throw new GriffinException.NotFoundException(HDFS_FILE_NOT_EXIST);
@@ -183,6 +174,25 @@ public class FSUtil {
         if (getFileSystem() == null) {
             throw new NullPointerException("FileSystem is null.Please check your hdfs config default name.");
         }
+    }
+
+    public static String getFirstMissRecordPath(String hdfsDir) throws Exception{
+        List<FileStatus> fileList = listFileStatus(hdfsDir);
+        for(int i=0; i<fileList.size();i++){
+            if(fileList.get(i).getPath().toUri().toString().toLowerCase().contains("missrecord")){
+                return fileList.get(i).getPath().toUri().toString();
+            }
+        }
+        return null;
+    }
+
+    public static InputStream getMissSampleInputStream(String path) throws Exception {
+        List<String> subDirList = listSubDir(path);
+        //FIXME: only handle 1-sub dir here now
+        for(int i=0; i< subDirList.size();i++){
+            return getSampleInputStream(getFirstMissRecordPath(subDirList.get(i)));
+        }
+        return getSampleInputStream(getFirstMissRecordPath(path));
     }
 
 }

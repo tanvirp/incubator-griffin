@@ -18,6 +18,8 @@ under the License.
 */
 package org.apache.griffin.measure.utils
 
+import scala.reflect.ClassTag
+
 object ParamUtil {
 
   implicit class ParamMap(params: Map[String, Any]) {
@@ -28,7 +30,7 @@ object ParamUtil {
       }
     }
 
-    def getAnyRef[T](key: String, defValue: T)(implicit m: Manifest[T]): T = {
+    def getAnyRef[T: ClassTag](key: String, defValue: T): T = {
       params.get(key) match {
         case Some(v: T) => v
         case _ => defValue
@@ -44,6 +46,18 @@ object ParamUtil {
         }
       } catch {
         case _: Throwable => defValue
+      }
+    }
+
+    def getLazyString(key: String, defValue: () => String): String = {
+      try {
+        params.get(key) match {
+          case Some(v: String) => v.toString
+          case Some(v) => v.toString
+          case _ => defValue()
+        }
+      } catch {
+        case _: Throwable => defValue()
       }
     }
 
@@ -163,10 +177,11 @@ object ParamUtil {
       }
     }
 
+    case class StringAnyMap(values:Map[String,Any])
     def getParamMap(key: String, defValue: Map[String, Any] = Map[String, Any]()): Map[String, Any] = {
       try {
         params.get(key) match {
-          case Some(v: Map[String, Any]) => v
+          case Some(v: StringAnyMap) => v.values
           case _ => defValue
         }
       } catch {
@@ -177,7 +192,7 @@ object ParamUtil {
     def getParamMapOpt(key: String): Option[Map[String, Any]] = {
       try {
         params.get(key) match {
-          case Some(v: Map[String, Any]) => Some(v)
+          case Some(v: StringAnyMap) => Some(v.values)
           case _ => None
         }
       } catch {
@@ -186,9 +201,10 @@ object ParamUtil {
     }
 
     def getArr[T](key: String): Seq[T] = {
+      case class TSeqs(values:Seq[T])
       try {
         params.get(key) match {
-          case Some(seq: Seq[T]) => seq
+          case Some(seq: TSeqs) => seq.values
           case _ => Nil
         }
       } catch {
